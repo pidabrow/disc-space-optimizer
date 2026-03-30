@@ -8,8 +8,8 @@ import stat
 import sys
 from datetime import datetime
 
-# Minimum file size to include in the report (1 MiB).
-MIN_FILE_SIZE_BYTES = 1 * 1024 * 1024
+# Minimum file size to include in the report (files at or below are omitted).
+MIN_FILE_SIZE_BYTES = 50 * 1024 * 1024
 WARNING_SIZE_BYTES = 250 * 1024 * 1024
 CRITICAL_SIZE_BYTES = 1 * 1024 * 1024 * 1024
 

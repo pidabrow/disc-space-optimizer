@@ -14,6 +14,11 @@ sys.path.insert(0, str(ROOT))
 import disk_scanner as ds  # noqa: E402
 
 
+class TestListingThreshold(unittest.TestCase):
+    def test_production_min_is_50mb(self):
+        self.assertEqual(ds.MIN_FILE_SIZE_BYTES, 50 * 1024 * 1024)
+
+
 class TestFormatters(unittest.TestCase):
     def test_format_size_bytes(self):
         self.assertEqual(ds.format_size(0), "0 B")
@@ -43,7 +48,14 @@ class TestExcludedPaths(unittest.TestCase):
 
 
 class TestScanDirectory(unittest.TestCase):
+    """scan_directory uses a patched small MIN in tests to avoid huge temp files."""
+
+    _TEST_MIN = 1024 * 1024  # 1 MiB while production MIN is 50 MiB
+
     def setUp(self):
+        patcher = mock.patch.object(ds, "MIN_FILE_SIZE_BYTES", self._TEST_MIN)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = self.tmp.name
@@ -52,9 +64,9 @@ class TestScanDirectory(unittest.TestCase):
         small = Path(self.root) / "small.bin"
         large = Path(self.root) / "large.bin"
         huge = Path(self.root) / "huge.bin"
-        small.write_bytes(b"x" * (ds.MIN_FILE_SIZE_BYTES // 2))
-        large.write_bytes(b"y" * (ds.MIN_FILE_SIZE_BYTES + 1))
-        huge.write_bytes(b"z" * (ds.MIN_FILE_SIZE_BYTES + 100))
+        small.write_bytes(b"x" * (self._TEST_MIN // 2))
+        large.write_bytes(b"y" * (self._TEST_MIN + 1))
+        huge.write_bytes(b"z" * (self._TEST_MIN + 100))
 
         rows = ds.scan_directory(self.root)
         paths = [r[0] for r in rows]
@@ -66,7 +78,7 @@ class TestScanDirectory(unittest.TestCase):
 
     def test_skips_symlink_to_file(self):
         target = Path(self.root) / "real.bin"
-        target.write_bytes(b"t" * (ds.MIN_FILE_SIZE_BYTES + 1))
+        target.write_bytes(b"t" * (self._TEST_MIN + 1))
         link = Path(self.root) / "link.bin"
         try:
             link.symlink_to(target)
@@ -90,7 +102,7 @@ class TestScanDirectory(unittest.TestCase):
 
     def test_atime_fallback_to_mtime(self):
         path = Path(self.root) / "f.bin"
-        path.write_bytes(b"a" * (ds.MIN_FILE_SIZE_BYTES + 1))
+        path.write_bytes(b"a" * (self._TEST_MIN + 1))
         st = path.stat()
         os.utime(path, (0, st.st_mtime))
 

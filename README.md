@@ -1,6 +1,6 @@
 # disc-space-optimizer
 
-CLI tool that scans a given directory (recursively, without following symlinks) and prints a size-sorted list of **large regular files** above a 1 MiB threshold, with human-readable size, last access time, and ANSI highlights for warning (250 MB) and critical (1 GB) sizes. It does not modify the disk—only reads metadata.
+CLI tool that scans a given directory (recursively, without following symlinks) and prints a size-sorted list of **large regular files** above a **50 MB** listing threshold, with human-readable size, last access time, and ANSI highlights for warning (250 MB) and critical (1 GB) sizes. It does not modify the disk—only reads metadata.
 
 Specification and implementation plan: [`docs/disk_optimizer_L10_implementation_plan.md`](docs/disk_optimizer_L10_implementation_plan.md). **It does not delete files**, export JSON/CSV, scan in parallel, or follow symbolic links; no third-party dependencies (stdlib only).
 
