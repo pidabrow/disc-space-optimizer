@@ -1,6 +1,8 @@
 """Unit tests for disk_scanner (stdlib only)."""
 
+import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -138,6 +140,132 @@ class TestParseArgs(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             ds.parse_root_arg(["disk_scanner.py"])
         self.assertEqual(cm.exception.code, 2)
+
+    def test_correct_arity(self):
+        result = ds.parse_root_arg(["disk_scanner.py", "/some/path"])
+        self.assertEqual(result, "/some/path")
+
+
+class TestFormatSizeLargeUnits(unittest.TestCase):
+    def test_gb(self):
+        self.assertIn("GB", ds.format_size(2 * 1024 ** 3))
+
+    def test_tb(self):
+        self.assertIn("TB", ds.format_size(2 * 1024 ** 4))
+
+
+class TestAnsiForSize(unittest.TestCase):
+    def test_normal(self):
+        self.assertEqual(ds._ansi_for_size(ds.MIN_FILE_SIZE_BYTES), "")
+
+    def test_warning(self):
+        self.assertEqual(ds._ansi_for_size(ds.WARNING_SIZE_BYTES + 1), ds.YELLOW)
+
+    def test_critical(self):
+        self.assertEqual(ds._ansi_for_size(ds.CRITICAL_SIZE_BYTES + 1), ds.RED)
+
+
+class TestRenderTable(unittest.TestCase):
+    def _capture(self, rows):
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as fake_out:
+            ds.render_table(rows)
+            return fake_out.getvalue()
+
+    def test_empty(self):
+        out = self._capture([])
+        self.assertIn("No files above", out)
+
+    def test_header_and_row(self):
+        rows = [("/tmp/big.bin", 100 * 1024 * 1024, 0.0)]
+        out = self._capture(rows)
+        self.assertIn("SIZE", out)
+        self.assertIn("LAST ACCESS", out)
+        self.assertIn("PATH", out)
+        self.assertIn("/tmp/big.bin", out)
+        self.assertIn("MB", out)
+
+    def test_separator_line(self):
+        rows = [("/tmp/a.bin", 60 * 1024 * 1024, 0.0)]
+        out = self._capture(rows)
+        lines = out.splitlines()
+        self.assertTrue(any(set(l.strip()) == {"-"} for l in lines))
+
+    def test_warning_color_applied(self):
+        size = ds.WARNING_SIZE_BYTES + 1
+        rows = [("/tmp/warn.bin", size, 0.0)]
+        out = self._capture(rows)
+        self.assertIn(ds.YELLOW, out)
+        self.assertIn(ds.RESET, out)
+
+    def test_critical_color_applied(self):
+        size = ds.CRITICAL_SIZE_BYTES + 1
+        rows = [("/tmp/crit.bin", size, 0.0)]
+        out = self._capture(rows)
+        self.assertIn(ds.RED, out)
+        self.assertIn(ds.RESET, out)
+
+    def test_normal_size_no_color(self):
+        size = ds.MIN_FILE_SIZE_BYTES + 1
+        rows = [("/tmp/normal.bin", size, 0.0)]
+        out = self._capture(rows)
+        self.assertNotIn(ds.YELLOW, out)
+        self.assertNotIn(ds.RED, out)
+
+
+class TestMainE2E(unittest.TestCase):
+    """End-to-end tests that invoke disk_scanner.py as a subprocess."""
+
+    SCANNER = str(ROOT / "disk_scanner.py")
+
+    def _run(self, *args, **kwargs):
+        return subprocess.run(
+            [sys.executable, self.SCANNER, *args],
+            capture_output=True,
+            text=True,
+            **kwargs,
+        )
+
+    def test_no_args_exits_2(self):
+        r = self._run()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("usage", r.stderr)
+
+    def test_nonexistent_path_exits_1(self):
+        r = self._run("/no/such/path/__disk_scanner_e2e__")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("error", r.stderr)
+
+    def test_file_instead_of_dir_exits_1(self):
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            p = f.name
+        try:
+            r = self._run(p)
+            self.assertEqual(r.returncode, 1)
+        finally:
+            os.unlink(p)
+
+    def test_empty_dir_prints_no_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run(tmp)
+            self.assertEqual(r.returncode, 0)
+            self.assertIn("No files above", r.stdout)
+
+    def test_large_file_appears_in_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            large = Path(tmp) / "big.bin"
+            large.write_bytes(b"x" * (ds.MIN_FILE_SIZE_BYTES + 1))
+            r = self._run(tmp)
+            self.assertEqual(r.returncode, 0)
+            self.assertIn("big.bin", r.stdout)
+            self.assertIn("MB", r.stdout)
+
+    def test_small_file_absent_from_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            small = Path(tmp) / "small.bin"
+            small.write_bytes(b"x" * 1024)
+            r = self._run(tmp)
+            self.assertEqual(r.returncode, 0)
+            self.assertIn("No files above", r.stdout)
 
 
 if __name__ == "__main__":
